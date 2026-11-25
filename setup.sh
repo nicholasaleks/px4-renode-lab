@@ -1,12 +1,30 @@
 #!/usr/bin/env bash
-# One-time setup: the lab's own Python environment (.venv/) and Renode (renode/), both inside this directory.
+# One-time setup, all inside this directory: ArduPilot's Renode board tooling (ardupilot/), the lab's own Python
+# environment (.venv/) and Renode (renode/).
 #   ./setup.sh               install whatever is missing
-#   ./setup.sh --force       reinstall both
+#   ./setup.sh --force       reinstall .venv/ and renode/
+# ardupilot/ is a shallow checkout of the ArduPilot commit this lab is tested with (ARDUPILOT_REF overrides it).
+# ARDUPILOT=/path/to/checkout uses an existing ArduPilot tree instead (pass the same variable to ./run.sh).
 # Renode is the patched build the board tooling is tested against, from its published packages
 # (latest.json, size and SHA-256 checked). RENODE_SOURCE_REVISION=<40-hex> refuses any other build.
 set -euo pipefail
+# Host tools: git/curl fetch, objcopy (the board tooling makes the flash image), pgrep (run.sh/stop.sh).
+MISSING=()
+for tool in git:git curl:curl pgrep:procps; do
+    command -v "${tool%%:*}" >/dev/null || MISSING+=("${tool#*:}")
+done
+command -v arm-none-eabi-objcopy >/dev/null || command -v objcopy >/dev/null || MISSING+=(binutils)
+if [ "$(uname -s)" = Darwin ]; then
+    [ ${#MISSING[@]} -eq 0 ] || { echo "missing objcopy; macOS: brew install arm-none-eabi-binutils" >&2; exit 1; }
+else
+    # Renode (.NET) needs ICU on Linux
+    { ldconfig -p 2>/dev/null || true; } | grep -q 'libicuuc\.so' || MISSING+=(libicu-dev)
+    [ ${#MISSING[@]} -eq 0 ] || { echo "missing host packages; Debian/Kali/Ubuntu: sudo apt install ${MISSING[*]}" >&2; exit 1; }
+fi
 LAB="$(cd "$(dirname "$0")" && pwd)"
-AP="${ARDUPILOT:-$HOME/Projects/ardupilot}"
+AP="${ARDUPILOT:-$LAB/ardupilot}"
+AP_REF="${ARDUPILOT_REF:-437a3301cc335742e5807e6f10e1b819e0a5afa9}"
+AP_URL="https://github.com/ArduPilot/ardupilot.git"
 BASE_URL="${RENODE_PACKAGE_BASE_URL:-https://firmware.ardupilot.org/Tools/Renode}"
 VENV="$LAB/.venv"
 RENODE_DIR="$LAB/renode"
@@ -14,19 +32,39 @@ RENODE_DIR="$LAB/renode"
 if [ "${1:-}" = "--force" ]; then rm -rf "$VENV" "$RENODE_DIR"; fi
 
 if [ ! -f "$AP/Tools/renode/run.py" ]; then
-    echo "board tooling not found at $AP/Tools/renode (set ARDUPILOT to your checkout, or clone it):" >&2
-    echo "  git clone --depth 1 https://github.com/ArduPilot/ardupilot.git $AP" >&2
-    exit 1
+    if [ -n "${ARDUPILOT:-}" ]; then
+        echo "board tooling not found at $AP/Tools/renode (ARDUPILOT must point at an ArduPilot checkout)" >&2
+        exit 1
+    fi
+    # Only the tree is needed (board hwdefs, IO bootloader, Tools/renode), no history.
+    echo "fetching ArduPilot ${AP_REF:0:10} into ardupilot/ (board tooling)"
+    rm -rf "$AP.partial"
+    git init --quiet "$AP.partial"
+    git -C "$AP.partial" fetch --quiet --depth 1 "$AP_URL" "$AP_REF"
+    git -C "$AP.partial" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+    mv "$AP.partial" "$AP"
+fi
+# Board generation reads the STM32 DMAMUX headers from the ChibiOS submodule; no other submodule is needed.
+if [ ! -f "$AP/modules/ChibiOS/os/hal/ports/STM32/STM32H7xx/stm32_dmamux.h" ]; then
+    echo "fetching ArduPilot's ChibiOS submodule (board generation)"
+    git -C "$AP" submodule update --quiet --init --depth 1 modules/ChibiOS
 fi
 
 # Python: run.py needs pyfatfs 1.1.0 (SD images; its 'fs' dependency imports pkg_resources, gone in
-# setuptools 81), intelhex and pymavlink. Prefer 3.12, which this lab is tested with.
+# setuptools 81), intelhex and pymavlink; ./mavlink.sh needs MAVProxy. Prefer 3.12, which this lab is tested with.
+PIP_PACKAGES=("pyfatfs==1.1.0" intelhex pymavlink MAVProxy "setuptools<81")
+[ "$(uname -s)" = Darwin ] && PIP_PACKAGES+=(gnureadline)  # MAVProxy's console imports it on macOS
 if [ ! -x "$VENV/bin/python" ]; then
-    PY="${PYTHON:-$(command -v python3.12 || command -v python3)}"
+    PY="${PYTHON:-$(command -v python3.12 || command -v python3 || true)}"
+    [ -n "$PY" ] || { echo "python3 not found (Debian/Kali: sudo apt install python3 python3-venv)" >&2; exit 1; }
     echo "creating .venv with $PY ($("$PY" --version))"
-    "$PY" -m venv "$VENV"
+    "$PY" -m venv "$VENV" || { rm -rf "$VENV"; echo "venv creation failed (Debian/Kali: sudo apt install python3-venv)" >&2; exit 1; }
     "$VENV/bin/pip" install --quiet --upgrade pip
-    "$VENV/bin/pip" install --quiet "pyfatfs==1.1.0" intelhex pymavlink "setuptools<81"
+fi
+if [ "$(cat "$VENV/.lab-packages" 2>/dev/null)" != "${PIP_PACKAGES[*]}" ]; then
+    echo "installing Python packages into .venv"
+    "$VENV/bin/pip" install --quiet "${PIP_PACKAGES[@]}"
+    echo "${PIP_PACKAGES[*]}" > "$VENV/.lab-packages"
 fi
 
 case "$(uname -s)-$(uname -m)" in
@@ -59,7 +97,8 @@ PY
     echo "downloading $FILE (Renode ${REV:0:9})"
     curl --fail --location --progress-bar --retry 5 --output "$TMP/$FILE" "$BASE_URL/$FILE"
     [ "$(wc -c < "$TMP/$FILE" | tr -d ' ')" = "$SIZE" ] || { echo "size mismatch for $FILE" >&2; exit 1; }
-    echo "$SHA  $TMP/$FILE" | shasum -a 256 --check --status || { echo "SHA-256 mismatch for $FILE" >&2; exit 1; }
+    GOT="$("$VENV/bin/python" -I -c 'import hashlib, sys; h = hashlib.sha256(); f = open(sys.argv[1], "rb"); [h.update(b) for b in iter(lambda: f.read(1 << 20), b"")]; print(h.hexdigest())' "$TMP/$FILE")"
+    [ "$GOT" = "$SHA" ] || { echo "SHA-256 mismatch for $FILE" >&2; exit 1; }
     mkdir -p "$RENODE_DIR"
     case "$FILE" in
         *.dmg)

@@ -8,3 +8,7 @@ __pycache__/
 .venv/
 renode/
 .renode-download.*/
+ardupilot/
+ardupilot.partial/
+.ccache/
+PX4-Autopilot.partial/

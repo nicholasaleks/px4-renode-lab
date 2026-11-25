@@ -7,25 +7,39 @@ drivers, buses and registers.
 
 ## Requirements
 
-- An [ArduPilot](https://github.com/ArduPilot/ardupilot) checkout at `~/Projects/ardupilot` (or set `ARDUPILOT`): its
-  `Tools/renode` generates the CubeOrange board model and launches Renode. It is used unmodified; everything PX4/NuttX
-  needs differently lives here.
-- Python 3.10+ (3.12 preferred) and Docker (to build the firmware).
+macOS (Apple silicon or Intel) or Linux (x86_64 or arm64; tested on macOS and Kali) with:
 
-`./setup.sh` installs everything else inside this directory: a Python environment (`.venv/`) and the patched
-Renode build the board tooling is tested against (`renode/`, size and SHA-256 checked).
+- git, curl, binutils, procps, Python 3.10+ with venv, and on Linux libicu for Renode
+  (Debian/Kali: `sudo apt install git curl binutils procps python3 python3-venv libicu-dev`;
+  macOS: `brew install arm-none-eabi-binutils`)
+- Docker, usable without sudo, to build the firmware (Debian/Kali: `sudo apt install docker.io`,
+  `sudo usermod -aG docker $USER`, log in again)
+- ~6 GB of disk, mostly the PX4 and ArduPilot checkouts
+
+Everything else is fetched into this directory (all gitignored):
+
+- `ardupilot/`: a shallow checkout of [ArduPilot](https://github.com/ArduPilot/ardupilot) at the commit this lab is
+  tested with, plus its ChibiOS submodule. Its `Tools/renode` generates the CubeOrange board model and launches Renode.
+  It is used unmodified; everything PX4/NuttX needs differently lives here. To use an existing checkout instead, set
+  `ARDUPILOT=/path/to/ardupilot` for `./build.sh`, `./setup.sh` and `./run.sh`.
+- `.venv/`: Python for the board tooling, plus MAVProxy.
+- `renode/`: the patched Renode build the board tooling is tested against (size and SHA-256 checked).
+- `PX4-Autopilot/`: PX4 v1.17.0 with submodules (`PX4_REF` selects another tag or branch).
 
 ## Use
 
 ```sh
-cd ~/Projects/px4-renode-lab
-./setup.sh               # once: .venv/ and renode/
+git clone <this repo> px4-renode-lab && cd px4-renode-lab
+./build.sh               # once: fetches and sets up everything, builds the firmware (first run ~20-40 min)
 ./run.sh                 # terminal 1: boots in ~1 min to nsh> (Ctrl-C or ./stop.sh to stop)
 ./console.sh             # terminal 2: NuttX shell on UART7 (Ctrl-] quits; reconnect any time)
 ./mavlink.sh             # terminal 3 (optional): MAVProxy on TELEM1, forwarded to UDP 14550 for QGroundControl
 telnet localhost 1244    # Renode monitor: cpu PC, peripherals, sysbus ReadDoubleWord 0x..., pause/start
 ./stop.sh                # stops only this lab (other Renode instances keep running)
 ```
+
+`./setup.sh` alone installs just the runtime (`ardupilot/`, `.venv/`, `renode/`), for when you already have an ELF:
+`./run.sh path/to/firmware.elf`.
 
 Things to try at `nsh>`:
 
@@ -77,13 +91,17 @@ gives ~0.3x.
 ## Build
 
 ```sh
-./build.sh               # Docker (image px4-nuttx-build, arm64 native) -> firmware/cubepilot_cubeorange_console.elf
+./build.sh                               # -> firmware/cubepilot_cubeorange_console.elf
+./build.sh cubepilot_cubeorange_default  # other PX4 targets
 ```
+
+The build runs in Docker (`docker/`, Ubuntu 24.04, native arm64 or amd64) as your own user, with the compiler cache
+in `.ccache/`. Re-running only rebuilds what changed; delete `PX4-Autopilot/` to start from a clean checkout.
 
 The ELF keeps full debug symbols, so Renode shows function names (`sysbus FindSymbolAt <addr>`).
 `./run.sh --gdb` should give a GDB session (needs `arm-none-eabi-gdb`
-on the Mac, or `--gdb-bin`); not tried yet in this lab. Official prebuilt firmware is in `firmware/v1.17.0/` (no symbols, no lab patches;
-it boots but has the problems listed under fixes 2 and 7).
+on the Mac, or `--gdb-bin`); not tried yet in this lab. PX4's official v1.17.0 release
+images (no symbols, no lab patches) also boot, but have the problems listed under fixes 2 and 7.
 
 ## Fixes, and why each was needed
 
@@ -121,13 +139,15 @@ SD controller register access from reset.
 
 | Path | What |
 |---|---|
-| `setup.sh` | installs `.venv/` (Python for the board tooling) and `renode/` (Renode) |
+| `build.sh` | full setup: runs `setup.sh`, fetches `PX4-Autopilot/`, applies `patches/`, builds in Docker |
+| `setup.sh` | runtime only: `ardupilot/` (board tooling), `.venv/` (Python + MAVProxy) and `renode/` (Renode) |
 | `run.sh`, `stop.sh`, `console.sh`, `mavlink.sh` | run / stop / NuttX shell / MAVLink |
-| `build.sh`, `docker/` | firmware build in Docker, applying `patches/` |
+| `docker/` | firmware build image |
 | `patches/` | `nuttx-*.patch` apply to PX4's NuttX tree, `px4-*.patch` to PX4 |
 | `peripherals/` | PX4-compatible Renode models (C#, compiled by Renode at load time) |
 | `tools/console.py` | UART socket client (interactive, or scripted `--send ... --for N`) |
-| `PX4-Autopilot/` | PX4 v1.17.0 checkout (patched by `build.sh`) |
-| `firmware/` | built ELF; `v1.17.0/` official release images |
+| `ardupilot/` | ArduPilot checkout for the Renode board tooling (`Tools/renode`), fetched by `setup.sh` |
+| `PX4-Autopilot/` | PX4 v1.17.0 checkout, fetched and patched by `build.sh` |
+| `firmware/` | built ELFs |
 | `state/CubeOrange/` | flash, FRAM (parameters), SD image, sockets: delete to factory-reset |
 | `logs/` | Renode and console logs from runs (safe to delete) |

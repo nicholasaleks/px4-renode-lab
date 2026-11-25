@@ -13,11 +13,13 @@
 set -euo pipefail
 export PYTHONWARNINGS="ignore:pkg_resources is deprecated"
 LAB="$(cd "$(dirname "$0")" && pwd)"
-AP="${ARDUPILOT:-$HOME/Projects/ardupilot}"
+AP="${ARDUPILOT:-$LAB/ardupilot}"
 PY="$LAB/.venv/bin/python"
 RENODE="${RENODE:-$LAB/renode/Renode.app/Contents/MacOS/renode}"
 [ -x "$RENODE" ] || RENODE="$LAB/renode/renode"
-if [ ! -x "$PY" ] || [ ! -x "$RENODE" ]; then echo "Python env or Renode missing: run ./setup.sh first" >&2; exit 1; fi
+if [ ! -x "$PY" ] || [ ! -x "$RENODE" ] || [ ! -f "$AP/Tools/renode/run.py" ]; then
+    echo "ArduPilot board tooling, Python env or Renode missing: run ./setup.sh first" >&2; exit 1
+fi
 ELF="firmware/cubepilot_cubeorange_console.elf"
 if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ELF="$1"; shift; fi
 ELF="$(cd "$(dirname "$ELF")" && pwd)/$(basename "$ELF")"

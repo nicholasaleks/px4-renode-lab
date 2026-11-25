@@ -1,0 +1,10 @@
+logs/
+firmware/
+state/
+PX4-Autopilot/
+mavproxy/
+.DS_Store
+__pycache__/
+.venv/
+renode/
+.renode-download.*/

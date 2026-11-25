@@ -1,0 +1,16 @@
+diff --git a/arch/arm/src/common/arm_idle.c b/arch/arm/src/common/arm_idle.c
+index 4f2c5e70..f32334e3 100644
+--- a/arch/arm/src/common/arm_idle.c
++++ b/arch/arm/src/common/arm_idle.c
+@@ -56,8 +56,8 @@ void up_idle(void)
+ 
+   /* Sleep until an interrupt occurs to save power */
+ 
+-#if 0
+-  asm("WFI");  /* For example */
+-#endif
++  /* px4-renode-lab: sleep instead of spinning, so Renode can skip idle time */
++
++  asm("WFI");
+ #endif
+ }

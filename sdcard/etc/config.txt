@@ -1,0 +1,26 @@
+# px4-renode-lab: run by PX4's rcS from /fs/microsd/etc/config.txt on every boot (run.sh copies sdcard/ onto the
+# emulated SD card). With factory-fresh parameters (no airframe), provision the lab once and reboot:
+#   airframe 4001 (generic quad X), and the emulated sensors marked calibrated. The models are ideal (no bias,
+#   unit scale), so calibration is only the device IDs: CubeOrange IMUs on SPI1/SPI4, the ICM20948's AK09916 mag.
+# Delete state/CubeOrange/fram.img (or 'param reset_all' + reboot) to provision again.
+if param compare SYS_AUTOSTART 0
+then
+	echo "px4-renode-lab: first boot, setting airframe 4001 and sensor calibration, then rebooting"
+	param set SYS_AUTOSTART 4001
+	param set CAL_ACC0_ID 3670050
+	param set CAL_ACC0_PRIO 50
+	param set CAL_ACC1_ID 2621474
+	param set CAL_ACC1_PRIO 50
+	param set CAL_ACC2_ID 2424842
+	param set CAL_ACC2_PRIO 50
+	param set CAL_GYRO0_ID 3670050
+	param set CAL_GYRO0_PRIO 50
+	param set CAL_GYRO1_ID 2621474
+	param set CAL_GYRO1_PRIO 50
+	param set CAL_GYRO2_ID 2424842
+	param set CAL_GYRO2_PRIO 50
+	param set CAL_MAG0_ID 589858
+	param set CAL_MAG0_PRIO 50
+	param save
+	reboot
+fi

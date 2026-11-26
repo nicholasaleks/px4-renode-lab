@@ -114,8 +114,20 @@ fi
 
 # Model data the board tooling would otherwise download on every ./run.sh (STM32H743 register map, SHA-256 checked),
 # kept in renode-data/ so running needs no network.
-"$VENV/bin/python" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import renode_data; renode_data.ensure_mcu_data("STM32H743xx", sys.argv[2])' \
-    "$AP/Tools/renode" "$LAB/renode-data"
+# Retried like the curl downloads above: flaky DNS (e.g. some VM resolvers) otherwise fails setup here.
+for attempt in 1 2 3 4 5; do
+    "$VENV/bin/python" -I - "$AP/Tools/renode" "$LAB/renode-data" <<'PY' && break
+import sys
+sys.path.insert(0, sys.argv[1])
+import renode_data
+try:
+    renode_data.ensure_mcu_data("STM32H743xx", sys.argv[2])
+except Exception as error:
+    sys.exit("Renode model data download failed: %s" % error)
+PY
+    [ "$attempt" -lt 5 ] || { echo "giving up; check network/DNS and re-run ./setup.sh" >&2; exit 1; }
+    echo "retrying in 5 s ($attempt/5)" >&2; sleep 5
+done
 
 echo "python: $("$VENV/bin/python" --version)   renode: $("$EXE" --version 2>/dev/null | head -1) ($(cut -c1-9 "$RENODE_DIR/REVISION" 2>/dev/null || echo '?'))"
 echo "ready: ./run.sh"

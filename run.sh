@@ -41,6 +41,23 @@ if [ ! -f "$SDIMG" ]; then
     "$PY" -W ignore -c "import sys; sys.path.insert(0, sys.argv[1]); import fat_image; \
 fat_image.create_image(sys.argv[2], 256 * 1024 * 1024, 32, label='PX4')" "$AP/Tools/renode" "$SDIMG"
 fi
+# Lab files for the card: sdcard/<path> -> /fs/microsd/<path> (etc/config.txt provisions a fresh lab on first boot).
+# Written only when changed, so the card's logs and parameter backups are left alone.
+"$PY" -W ignore - "$SDIMG" "$LAB/sdcard" <<'PY'
+import sys
+from pathlib import Path
+from pyfatfs.PyFatFS import PyFatFS
+source = Path(sys.argv[2])
+with PyFatFS(sys.argv[1]) as card:
+    for path in sorted(p for p in source.rglob('*') if p.is_file()):
+        target = '/' + path.relative_to(source).as_posix()
+        data = path.read_bytes()
+        if card.exists(target) and card.readbytes(target) == data:
+            continue
+        card.makedirs(str(Path(target).parent), recreate=True)
+        card.writebytes(target, data)
+        print('sdcard: wrote', target)
+PY
 
 # FIXES: emulator gaps that NuttX/PX4 exercises and the board models don't handle. They run right after Renode's
 # "start", so the emulation is paused while models are swapped (PX4 probes sensors ~1 s into boot).

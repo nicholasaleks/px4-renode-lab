@@ -74,6 +74,7 @@ gives ~0.3x.
 - Boot to `nsh>`; all PX4 modules start; airframe 4001 (generic quad X) loaded
 - PX4 flashes its own `cubepilot_io-v2` firmware into the emulated F100 through the real IO bootloader
 - Sensors: 3 IMUs (ICM20602, ICM20948, ICM20649), 2 barometers (MS5611), compass (AK09916), all calibrated
+- First boot of a fresh lab provisions itself (airframe + sensor calibration) and reboots once; see fix 11
 - ADC: battery voltage/current (from the physics model) and the 5 V rail; ADC3 internal temperature
 - SD card mounted at `/fs/microsd`: logger, dataman, parameter backup
 - Parameters persist in emulated FRAM (`state/CubeOrange/fram.img`)
@@ -121,7 +122,7 @@ Most are real fidelity gaps in the emulator.
 | 8 | SD: card rejected after CMD8 | Renode's SDCard doesn't echo the CMD8 check pattern (0xAA); the SD spec requires it and NuttX checks | read hook on `SDMMC_RESP1` (`run.sh`) |
 | 9 | SD: block reads never complete | NuttX starts data transfers with CMDTRANS and leaves DCTRL.DTEN clear; the IDMA pump arms only on DTEN | write hook on `SDMMC_DCTRL` (`run.sh`) |
 | 10 | SD: `mount failed: Invalid argument` | the generated board makes a 256 MiB card but formats a 512 MiB FAT32 image into it; NuttX checks FAT size against card capacity | own 256 MiB image `state/CubeOrange/sdcard-px4.img` (`run.sh`) |
-| 11 | Preflight: no airframe, uncalibrated sensors | factory-fresh parameters | `SYS_AUTOSTART 4001`, gyro + quick accel calibration, `CAL_MAG0_ID` (stored in FRAM) |
+| 11 | Preflight: no airframe, uncalibrated sensors | factory-fresh parameters | `sdcard/etc/config.txt` (PX4 runs it from the SD card each boot): when `SYS_AUTOSTART` is 0, sets airframe 4001 and the sensors' `CAL_*_ID`/`PRIO` (the models are ideal, so no offsets), saves to FRAM and reboots |
 | 12 | Emulation drops to 0.03x after typing on the console (or MAVLink input) | the USART model (`AP_STM32F7_USART_Idle`) raises the USART IRQ on every idle line even with CR1.IDLEIE off; NuttX never enabled IDLE so never clears it, and `up_interrupt` re-enters forever | read hook on USART2/3, UART7/8 ISR acknowledges IDLE when IDLEIE is off (`run.sh`) |
 | 13 | Fixed 3 host-seconds per virtual second even with the FMU idle | generated board runs the F100 IO chip at 60 MIPS, flat out (no sleep in IO firmware); real chip is 24 MHz | `cpu PerformanceInMips 24` on `iomcu` (`run.sh`) |
 | 14 | SD writes take ~260 ms per block; `param save` blocks the shell for minutes after boot (the logger's multi-block writes hold the card) | after each write NuttX waits for the card to release busy: a rising edge on D0 (PC8) via EXTI line 8 (`CONFIG_MMCSD_SDIOWAIT_WRCOMPLETE`). The model has no D0 line, so every write waits out its timeout | write hook on `EXTI_CPUIMR1`: when line 8 is unmasked, pulse PC8 low-high (`run.sh`) |
@@ -147,6 +148,7 @@ SD controller register access from reset.
 | `patches/` | `nuttx-*.patch` apply to PX4's NuttX tree, `px4-*.patch` to PX4 |
 | `peripherals/` | PX4-compatible Renode models (C#, compiled by Renode at load time) |
 | `tools/console.py` | UART socket client (interactive, or scripted `--send ... --for N`) |
+| `sdcard/` | files `run.sh` copies onto the emulated SD card (`/fs/microsd/...`) when changed; `etc/config.txt` provisions a fresh lab |
 | `ardupilot/` | ArduPilot checkout for the Renode board tooling (`Tools/renode`), fetched by `setup.sh` |
 | `PX4-Autopilot/` | PX4 v1.17.0 checkout, fetched and patched by `build.sh` |
 | `firmware/` | built ELFs |

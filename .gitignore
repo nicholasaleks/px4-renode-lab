@@ -12,3 +12,4 @@ ardupilot/
 ardupilot.partial/
 .ccache/
 PX4-Autopilot.partial/
+renode-data/

@@ -17,8 +17,8 @@ AP="${ARDUPILOT:-$LAB/ardupilot}"
 PY="$LAB/.venv/bin/python"
 RENODE="${RENODE:-$LAB/renode/Renode.app/Contents/MacOS/renode}"
 [ -x "$RENODE" ] || RENODE="$LAB/renode/renode"
-if [ ! -x "$PY" ] || [ ! -x "$RENODE" ] || [ ! -f "$AP/Tools/renode/run.py" ]; then
-    echo "ArduPilot board tooling, Python env or Renode missing: run ./setup.sh first" >&2; exit 1
+if [ ! -x "$PY" ] || [ ! -x "$RENODE" ] || [ ! -f "$AP/Tools/renode/run.py" ] || [ ! -d "$LAB/renode-data" ]; then
+    echo "ArduPilot board tooling, Python env, Renode or model data missing: run ./setup.sh first" >&2; exit 1
 fi
 ELF="firmware/cubepilot_cubeorange_console.elf"
 if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ELF="$1"; shift; fi
@@ -123,7 +123,7 @@ if [ -z "${SHOW_SPI_NOISE:-}" ]; then
 fi
 cd "$AP"
 exec "$PY" -W ignore Tools/renode/run.py CubeOrange \
-    --renode "$RENODE" --elf "$ELF" --state-dir "$STATE" \
+    --renode "$RENODE" --elf "$ELF" --state-dir "$STATE" --data-cache "$LAB/renode-data" \
     --uds --serial 5 --port 1244 --no-xterm --real-iomcu \
     --device '{"device": "ublox-gps", "port": "SERIAL3", "instance": 1}' \
     --rc-channels "${RC_CHANNELS:-1500,1500,1000,1500,1000,1000,1000,1000}" \

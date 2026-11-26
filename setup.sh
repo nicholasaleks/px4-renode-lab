@@ -112,5 +112,10 @@ PY
     echo "$REV" > "$RENODE_DIR/REVISION"
 fi
 
+# Model data the board tooling would otherwise download on every ./run.sh (STM32H743 register map, SHA-256 checked),
+# kept in renode-data/ so running needs no network.
+"$VENV/bin/python" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import renode_data; renode_data.ensure_mcu_data("STM32H743xx", sys.argv[2])' \
+    "$AP/Tools/renode" "$LAB/renode-data"
+
 echo "python: $("$VENV/bin/python" --version)   renode: $("$EXE" --version 2>/dev/null | head -1) ($(cut -c1-9 "$RENODE_DIR/REVISION" 2>/dev/null || echo '?'))"
 echo "ready: ./run.sh"

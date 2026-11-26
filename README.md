@@ -24,6 +24,7 @@ Everything else is fetched into this directory (all gitignored):
   `ARDUPILOT=/path/to/ardupilot` for `./build.sh`, `./setup.sh` and `./run.sh`.
 - `.venv/`: Python for the board tooling, plus MAVProxy.
 - `renode/`: the patched Renode build the board tooling is tested against (size and SHA-256 checked).
+- `renode-data/`: the STM32H743 register map the board model loads (fetched once, so `./run.sh` works offline).
 - `PX4-Autopilot/`: PX4 v1.17.0 with submodules (`PX4_REF` selects another tag or branch).
 
 ## Use

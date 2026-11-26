@@ -20,8 +20,16 @@ RENODE="${RENODE:-$LAB/renode/Renode.app/Contents/MacOS/renode}"
 if [ ! -x "$PY" ] || [ ! -x "$RENODE" ] || [ ! -f "$AP/Tools/renode/run.py" ] || [ ! -d "$LAB/renode-data" ]; then
     echo "ArduPilot board tooling, Python env, Renode or model data missing: run ./setup.sh first" >&2; exit 1
 fi
-ELF="firmware/cubepilot_cubeorange_console.elf"
+ELF="$LAB/firmware/cubepilot_cubeorange_console.elf"
 if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ELF="$1"; shift; fi
+if [ ! -f "$ELF" ]; then
+    if [ "$ELF" = "$LAB/firmware/cubepilot_cubeorange_console.elf" ]; then
+        echo "no firmware yet: run ./build.sh first (builds firmware/cubepilot_cubeorange_console.elf)" >&2
+    else
+        echo "firmware not found: $ELF" >&2
+    fi
+    exit 1
+fi
 ELF="$(cd "$(dirname "$ELF")" && pwd)/$(basename "$ELF")"
 STATE="$LAB/state/CubeOrange"
 mkdir -p "$STATE"

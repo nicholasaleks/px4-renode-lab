@@ -144,4 +144,8 @@ if ! check_data; then
 fi
 
 echo "python: $("$VENV/bin/python" --version)   renode: $("$EXE" --version 2>/dev/null | head -1) ($(cut -c1-9 "$RENODE_DIR/REVISION" 2>/dev/null || echo '?'))"
-echo "ready: ./run.sh"
+if ls "$LAB"/firmware/*.elf >/dev/null 2>&1; then
+    echo "ready: ./run.sh"
+else
+    echo "runtime ready; no firmware yet: ./build.sh builds it (then ./run.sh)"
+fi

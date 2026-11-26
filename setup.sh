@@ -78,7 +78,7 @@ esac
 if [ ! -x "$EXE" ]; then
     TMP="$(mktemp -d "$LAB/.renode-download.XXXXXX")"
     trap 'hdiutil detach -quiet "$TMP/mnt" 2>/dev/null || true; rm -rf -- "$TMP"' EXIT
-    curl --fail --location --silent --show-error --retry 5 --output "$TMP/latest.json" "$BASE_URL/latest.json"
+    curl --fail --location --silent --show-error --retry 5 --retry-all-errors --output "$TMP/latest.json" "$BASE_URL/latest.json"
     # filename, sha256, size, revision of this platform's single package
     { read -r FILE; read -r SHA; read -r SIZE; read -r REV; } < <("$VENV/bin/python" -I - "$TMP/latest.json" "$ARTIFACT" \
         "${RENODE_SOURCE_REVISION:-}" <<'PY'
@@ -95,7 +95,7 @@ print(pkg["filename"], pkg["sha256"], pkg["size"], rev, sep="\n")
 PY
 )
     echo "downloading $FILE (Renode ${REV:0:9})"
-    curl --fail --location --progress-bar --retry 5 --output "$TMP/$FILE" "$BASE_URL/$FILE"
+    curl --fail --location --progress-bar --retry 5 --retry-all-errors --output "$TMP/$FILE" "$BASE_URL/$FILE"
     [ "$(wc -c < "$TMP/$FILE" | tr -d ' ')" = "$SIZE" ] || { echo "size mismatch for $FILE" >&2; exit 1; }
     GOT="$("$VENV/bin/python" -I -c 'import hashlib, sys; h = hashlib.sha256(); f = open(sys.argv[1], "rb"); [h.update(b) for b in iter(lambda: f.read(1 << 20), b"")]; print(h.hexdigest())' "$TMP/$FILE")"
     [ "$GOT" = "$SHA" ] || { echo "SHA-256 mismatch for $FILE" >&2; exit 1; }
@@ -112,22 +112,36 @@ PY
     echo "$REV" > "$RENODE_DIR/REVISION"
 fi
 
-# Model data the board tooling would otherwise download on every ./run.sh (STM32H743 register map, SHA-256 checked),
-# kept in renode-data/ so running needs no network.
-# Retried like the curl downloads above: flaky DNS (e.g. some VM resolvers) otherwise fails setup here.
-for attempt in 1 2 3 4 5; do
-    "$VENV/bin/python" -I - "$AP/Tools/renode" "$LAB/renode-data" <<'PY' && break
+# Model data the board tooling would otherwise download on every ./run.sh (STM32H743 register map), kept in
+# renode-data/ so running needs no network. Fetched with curl rather than the tooling's urllib: some VM resolvers
+# (seen on Parallels) fail combined IPv4+IPv6 lookups, which Python makes and curl does not. The tooling then
+# checks the file's size and SHA-256 against its manifest.
+DATA="$LAB/renode-data"
+{ read -r SVD; read -r SVD_URL; } < <("$VENV/bin/python" -I - "$AP/Tools/renode" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 import renode_data
-try:
-    renode_data.ensure_mcu_data("STM32H743xx", sys.argv[2])
-except Exception as error:
-    sys.exit("Renode model data download failed: %s" % error)
+name = renode_data.MCU_DATA_FILES["STM32H743xx"]["svd"]
+print(name, renode_data.DATA_DOWNLOAD_BASE + name, sep="\n")
 PY
-    [ "$attempt" -lt 5 ] || { echo "giving up; check network/DNS and re-run ./setup.sh" >&2; exit 1; }
-    echo "retrying in 5 s ($attempt/5)" >&2; sleep 5
-done
+)
+check_data() {
+    "$VENV/bin/python" -I - "$AP/Tools/renode" "$DATA" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import renode_data
+name = renode_data.MCU_DATA_FILES["STM32H743xx"]["svd"]
+sys.exit(0 if renode_data.valid_cached_file(Path(sys.argv[2]) / name, renode_data.DATA_FILES[name]) else 1)
+PY
+}
+if ! check_data; then
+    echo "downloading $SVD (Renode model data)"
+    mkdir -p "$(dirname "$DATA/$SVD")"
+    curl --fail --location --silent --show-error --retry 5 --retry-all-errors --output "$DATA/$SVD.partial" "$SVD_URL"
+    mv "$DATA/$SVD.partial" "$DATA/$SVD"
+    check_data || { rm -f "$DATA/$SVD"; echo "size/SHA-256 mismatch for $SVD" >&2; exit 1; }
+fi
 
 echo "python: $("$VENV/bin/python" --version)   renode: $("$EXE" --version 2>/dev/null | head -1) ($(cut -c1-9 "$RENODE_DIR/REVISION" 2>/dev/null || echo '?'))"
 echo "ready: ./run.sh"
